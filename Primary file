@@ -1,6 +1,0 @@
-#Begin code
-print ("What's up motherfu-")
-for i in range(10):
-  print("This should work right?")
-
-#End code
