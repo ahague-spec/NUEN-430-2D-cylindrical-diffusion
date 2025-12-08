@@ -2,7 +2,7 @@
 import numpy as np
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
-Fuel_Radius = 4.38e-3 #In meters, done this way to result in lower numbers because I want to 
+Fuel_Radius = 4.38e-3  #In meters, done this way to result in lower numbers because I want to 
 Fuel_ Height = 3.81 #In meters
 Gap_Thickness = 9e-5 #in meters, this region we can assume is empty space for purposes of neutron interactions
 Clad_Thickness = 6.6e-4 #in meters
@@ -15,8 +15,11 @@ Enrichment = 0.05 #Fraction of UO2 that's U-235. Remaining parts are U-238
 #Also gonna get data for fission cross sections, 
 """
 It might actually be a good idea to create code in a spyder file, then paste it here.
-
+Data from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX.PDF
+There are 7 total energy groups, and we can assume that all neutrons are born fast (in group 1)
+Also, this data homogenizes the fuel and clad
 """
+
 
 
 
