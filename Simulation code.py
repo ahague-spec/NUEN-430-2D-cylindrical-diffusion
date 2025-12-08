@@ -13,9 +13,10 @@ Fuel_ Height = 3.81 #In meters
 """
 It might actually be a good idea to create code in a spyder file, then paste it here.
 Data from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX.PDF
-There are 7 total energy groups, and we can assume that all neutrons are born fast (in group 1)
+There are 7 total energy groups, with tables of data provided for each of them that I will port over Monday evening
 Also, this data homogenizes the fuel and clad
 """
+
 
 
 
