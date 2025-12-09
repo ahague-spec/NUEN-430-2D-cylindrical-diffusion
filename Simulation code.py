@@ -5,7 +5,7 @@ import matplotlib as plt
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
 Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm
-Fuel_ Height = 381 #Height of overall rod, likely to get removed given we're gonna make this a 1D system
+#Fuel_ Height = 381 Height of overall rod, Does not matter given the 1D assumption
 #Everything past the cladding is assumed to be coolant, fuel and clad are homogenized
 #Properties for fuel/clad and moderator. These will remain constant. 
 #No fission in the coolant (duh)
@@ -33,7 +33,7 @@ Mod_Scat_Matr = [[4.44777E-02, 1.13400E-01, 7.23470E-04, 3.74990E-06, 5.31840E-0
 [0.00000E+00, 0.00000E+00, 0.00000E+00, 7.14370E-05, 1.39138E-01, 5.11820E-01, 6.12290E-02],
 [00.00000E+00, 0.00000E+00, 0.00000E+00, 0.00000E+00, 0.00000E+00, 1.32440E-01, 2.48070E+00]]
 
-Mod_Diff_Coeffs =[2.0858,0.8071,0.5644,0.5686,0.4606,0.2627,0.1240] #units are cm^-2
+Mod_Diff_Coeffs =[2.0858,0.8071,0.5644,0.5686,0.4606,0.2627,0.1240]
 Mod_Abs_CS= [6.0105e-4,1.5793e-5,3.37160E-04,1.94060E-03,5.74160E-03,1.50010E-02,3.72390E-02]
 Mod_Total_CS= [2.30070E-01,7.76460E-01,1.4842,1.5052,1.5592,2.0254,3.3057]
 
@@ -47,6 +47,7 @@ Data from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX
 There are 7 total energy groups, with tables of data provided for each of them that I will port over Monday evening
 Also, this data homogenizes the fuel and clad
 """
+
 
 
 
