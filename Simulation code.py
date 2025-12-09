@@ -1,10 +1,11 @@
 #start of code, import some stuff
 import numpy as np
+import matplotlib as plt
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
-Cylinder_Radius = 0.513 
-Fuel_ Height = 381
+Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm
+Fuel_ Height = 381 #Height of overall rod, likely to get removed given we're gonna make this a 1D system
 #Everything past the cladding is assumed to be coolant, fuel and clad are homogenized
 #Properties for fuel/clad and moderator. These will remain constant. 
 #No fission in the coolant (duh)
@@ -46,6 +47,7 @@ Data from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX
 There are 7 total energy groups, with tables of data provided for each of them that I will port over Monday evening
 Also, this data homogenizes the fuel and clad
 """
+
 
 
 
