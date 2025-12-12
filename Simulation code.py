@@ -1,6 +1,7 @@
 #start of code, import some stuff
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
@@ -55,6 +56,7 @@ Greatest_Extents=np.empty(Num_Groups) #based on zero-edge assumptuion, find the 
 for i in range(Num_Groups): #Loop populates extrapolation distance array. Contains positions for zero-flux assumption. Constant
     Greatest_Extents[i]=Cylinder_Radius+2*(Mod_Diff_Coeffs[i]) 
 X_Points=np.linspace(0,max(Greatest_Extents),Mesh_Points) #10 points between centerline and greatest extent. Not all groups will reach this far
+Step_Width=X_Points[1]-X_Points[0] #Find the width of a step between two slices
 Flux_Array=np.zeros((Num_Groups,len(X_Points)))#Create empty array to store flux values at each point
 Anal_Flux=np.zeros((len(X_Points))) #Create 1D array to store flux values for 1-group analytical solution
 #Loop just defines values for graph testing,
@@ -65,10 +67,28 @@ for i in range(Num_Groups): #Run this loop to define placeholder values for Flux
             Anal_Flux[j]=0
         else:
             Flux_Array[i][j]=i**2 + j**2
+            Anal_Flux[j]=i**2 + j**2 + 1
 
 def Find_L2_Error(): #For analytical solution, finds Least mean squared error between it and numerical solution
-    print("gaming")
-    #Transfer this to spyder
+    Eo=0 #Difference between current values
+    Ep=0 #Difference between next value
+    Total_Error=0 #Summation portion of error
+    max_error=0
+#L2 code can be found in HW2 Q2C file
+    for z in range(len(Flux_Array[0]) - 1): #runs up to second to last value in both analytical and Numerical data arrays
+        #start at 0, iterate to end
+        cur_anal_flux = Anal_Flux[z] #Pull current flux value from array
+        next_anal_flux = Anal_Flux[z+1] #Pull next flux value from array
+        #calculate error, then add to total
+        Eo = abs(Flux_Array[0][z] - cur_anal_flux)
+        if Eo>max_error:
+            max_error=Eo #Find and print out the greatest deviation
+        Ep = (Flux_Array[0][z+1] - next_anal_flux)
+        Total_Error += Step_Width/2 * (Eo**2 + Ep**2)
+    #solve for and print
+    L_square_error=math.sqrt(Total_Error) #Get final answer, then print out results
+    print("Least squares error = ", L_square_error)
+    print("Greatest error =", max_error)
 
 def Plot_Fluxes(): #Print out flux values for each group
     if (One_Group_Toggle == False): #Print out all 7 groups in pretty rainbow colors
@@ -87,7 +107,7 @@ def Plot_Fluxes(): #Print out flux values for each group
     plt.ylabel("Group Flux (n / (cm\u00b2 * s)")
     plt.legend()
     plt.show()
+    
 Plot_Fluxes() #Run plotting code
+Find_L2_Error()#Find and print out L2 error if we're doing analytical solution
 #End of code
-
-
