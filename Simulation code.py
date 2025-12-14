@@ -2,6 +2,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+from scipy import sparse
+import scipy.sparse.linalg as lin
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
@@ -60,9 +62,12 @@ This is just reference material for me, cuz I tend to forget python does x,y in 
 Greatest_Extents=np.empty(Num_Groups) #based on zero-edge assumptuion, find the zero-point for each energy group
 for i in range(Num_Groups): #Loop populates extrapolation distance array. Contains positions for zero-flux assumption. Constant
     Greatest_Extents[i]=Cylinder_Radius+2*(Mod_Diff_Coeffs[i]) 
-    
-R_Points=np.linspace(0,max(Greatest_Extents),Mesh_Points) #Points between centerline and greatest extent. Not all groups will reach this far
-Step_Width=R_Points[1]-R_Points[0] #Find the width of a step between two slices
+Step_Width=max(Greatest_Extents)/(Mesh_Points-1)
+
+R_Points=np.linspace(Step_Width,max(Greatest_Extents),Mesh_Points) #Points between centerline and greatest extent. Not all groups will reach this far
+#Starting at first point, due to singularity at 0
+
+#Step_Width=R_Points[1]-R_Points[0] #Find the width of a step between two slices
 Flux_Array=np.zeros((Num_Groups,len(R_Points)))#Create empty array to store flux values at each point
 Anal_Flux=np.zeros((len(R_Points))) #Create 1D array to store flux values for 1-group analytical solution
 #Loop just defines values for graph testing,
@@ -123,34 +128,45 @@ def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe 
 def Analytical_Soln():
     print("yeah")
     
+Group_Matr=np.zeros((Mesh_Points,Mesh_Points)) #Matrix for position values, only 3 along middle will have values (in 1 group)
+Source_Matr=np.zeros(Mesh_Points) #Source
+
 def Numerical_Soln():
     #Spatial discretization (for each group). Currently doing 1-group
     #NOTE: Inscattering 
     for a in range(Num_Groups):
-        #Group_v= 1.38e6 * math.sqrt(Group_Avg_Energy[a]) #Averaged velocity of a given group
-        for i in range(1, len(R_Points)):#Iterate through mesh points. Start at 1 because 0 results in a singularity
+        #Define source matrix. Will be 100 at centerline for group 1, 0 for everything else
+        if a == 0:
+            Source_Matr[0] = 100 #Note that this represents the first step, as a true 0 position causes singularities
+        else:
+            Source_Matr[0] = 0
+        for i in range(len(R_Points)):#Iterate through mesh points. Start at 1 because 0 results in a singularity
             #DEfining positions    
             Get_Properties(i,a)
             #Diffusion term
             if One_Group_Toggle==True:
-                print(Cur_R)
-                print("gaming")
-                #Now do the numerical solution, add values to empty matrix A. 
-                #Source strength is defined at point 0, but is zero everywhere else (Matrix b)
-                #Then solve
-                
-                #Diffusion term, get coefficients that will be used in matrix
-                #Fission Term (Already calculated)
-                #in-Scattering term (N/A for one group)
-                
-                #Removal term (Again, already found)
+                #Always do middle term, which is the longest, naturally
+                Group_Matr[i][i]= Diff_Cur_Flux + Fission_Coeff - Removal_Coeff #Diffusion,removal,fission
+                if i!=0: 
+                    #previous term, don't draw on first iteration
+                    Group_Matr[i][i-1]=Flux_minone
+                #At start, don't draw previous term
+                if i!=len(R_Points)-1:
+                    #Forward term
+                    Group_Matr[i][i+1]=Flux_plusone
+                #Last point, don't draw forward term
+                #Now solve. Note we're not starting at zero point
+                Sparse_A=sparse.csr_matrix(Group_Matr)
+                Final_Fluxes=lin.spsolve(Sparse_A,Source_Matr)
             else:
                 print("Multigroup system coming soon")
-Numerical_Soln()
+    print(Group_Matr) #Printout the matrix of values I found for A
+    return Final_Fluxes
 
-
-
-
+if One_Group_Toggle == True:
+    Flux_Array = Numerical_Soln()
+else:
+    print("Nope")
 
 
 
@@ -185,8 +201,8 @@ def Plot_Fluxes(): #Print out flux values for each group
         plt.plot(R_Points,Flux_Array[5],color="indigo",label="Group 6 Flux")
         plt.plot(R_Points,Flux_Array[6],color="violet",label="Group 7 Flux")
     else: #If only one group, we only print out the first group and compare it to the analytical solution
-        plt.plot(R_Points,Flux_Array[0],color="red",label="Numerical Flux")
-        plt.plot(R_Points,Anal_Flux,color="blue",linestyle='-',label='Analytical Flux')
+        plt.plot(R_Points,Flux_Array,color="red",label="Numerical Flux")
+        #plt.plot(R_Points,Anal_Flux,color="blue",linestyle='-',label='Analytical Flux')
     plt.axvline(x=Cylinder_Radius, color='black',linestyle='--', label='Edge of Fuel/Clad') #Indicate edge of the cylinder
     plt.xlabel("Radial distance from center (cm)")
     plt.ylabel("Group Flux (n / (cm\u00b2 * s)")
@@ -195,6 +211,5 @@ def Plot_Fluxes(): #Print out flux values for each group
     plt.show()
     
 Plot_Fluxes() #Run plotting code
-Find_L2_Error()#Find and print out L2 error if we're doing analytical solution
+#Find_L2_Error()#Find and print out L2 error if we're doing analytical solution. Finish that
 #End of code
-
