@@ -21,7 +21,7 @@ else:
     Num_Groups = 7
     
 Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm
-Mesh_Points = 100 #How many mesh points are there going to be in our first trial? Changes results due to source term
+Mesh_Points = 50 #How many mesh points are there going to be in our first trial? Changes results due to source term
 Source_Strength=100 #Strength of point centreline source
 """Fuel_Height = 381 #Height of overall rod, doesn't matter due to 1D assumption
 #. This is handled at the function for initialization of arrays
@@ -131,8 +131,8 @@ def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe 
     
 def Analytical_Soln():
     print("yeah")
-    #This will likely be similar to the one in HW2 Q2C, with the exp things
-    #But what about the fission term? Source is only at the center
+    
+
     
 Group_Matr=np.zeros((Mesh_Points,Mesh_Points)) #Matrix for position values, only 3 along middle will have values (in 1 group)
 Source_Matr=np.zeros(Mesh_Points) #Source
@@ -148,7 +148,7 @@ def Numerical_Soln():
             Get_Properties(i,a)
             #Define source term.  Will be fixed strength (weak) within the rod. NEed to accomodate different slice size
             if R_Points[i] < Cylinder_Radius:
-                Source_Matr[i] = -100 * Step_Width/R_Points[i] #Note that this represents the first step, as a true 0 position causes singularities
+                Source_Matr[i] = -100 #Note that this represents every point within the cylinder. Needs adjustment, changing mesh size seems to alter
             else: 
                 Source_Matr[i] = 0
             #Diffusion term
@@ -174,6 +174,7 @@ def Numerical_Soln():
 
 if One_Group_Toggle == True:
     Flux_Array = Numerical_Soln()
+    Anal_Flux_Array=Analytical_Soln()
 else:
     print("Nope")
 
@@ -210,6 +211,8 @@ def Plot_Fluxes(): #Print out flux values for each group
         plt.plot(R_Points,Flux_Array[5],color="indigo",label="Group 6 Flux")
         plt.plot(R_Points,Flux_Array[6],color="violet",label="Group 7 Flux")
     else: #If only one group, we only print out the first group and compare it to the analytical solution
+        for i in range(Mesh_Points):
+            print("Flux at point", R_Points[i], "cm =", Flux_Array[i])
         plt.plot(R_Points,Flux_Array,color="red",label="Numerical Flux")
         #plt.plot(R_Points,Anal_Flux,color="blue",linestyle='-',label='Analytical Flux')
     plt.axvline(x=Cylinder_Radius, color='black',linestyle='--', label='Edge of Fuel/Clad') #Indicate edge of the cylinder
@@ -222,4 +225,3 @@ def Plot_Fluxes(): #Print out flux values for each group
 Plot_Fluxes() #Run plotting code
 #Find_L2_Error()#Find and print out L2 error if we're doing analytical solution. Finish that
 #End of code
-
