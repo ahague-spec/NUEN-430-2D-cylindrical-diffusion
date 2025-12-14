@@ -1,4 +1,10 @@
 #start of code, import some stuff
+
+"""Current problems:
+    Graph changes with mesh size, but shape does not. Source term is most likely to blame
+    Need Analytical and multi-group solutions
+    """
+
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -15,9 +21,7 @@ else:
     Num_Groups = 7
     
 Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm
-Mesh_Points = 50 #How many mesh points are there going to be in our first trial?
-Cur_Time=-1 #Define value for current time, which will be used to print graph titles and simplify formulas
-Time_Steps=[0.01,0.1,1,2,3,4,5,6,7,8,9,10] #Time steps for finite element transient
+Mesh_Points = 100 #How many mesh points are there going to be in our first trial? Changes results due to source term
 Source_Strength=100 #Strength of point centreline source
 """Fuel_Height = 381 #Height of overall rod, doesn't matter due to 1D assumption
 #. This is handled at the function for initialization of arrays
@@ -127,24 +131,26 @@ def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe 
     
 def Analytical_Soln():
     print("yeah")
+    #This will likely be similar to the one in HW2 Q2C, with the exp things
+    #But what about the fission term? Source is only at the center
     
 Group_Matr=np.zeros((Mesh_Points,Mesh_Points)) #Matrix for position values, only 3 along middle will have values (in 1 group)
 Source_Matr=np.zeros(Mesh_Points) #Source
 
 def Numerical_Soln():
     #Spatial discretization (for each group). Currently doing 1-group
-    """While this function does not work right, producing negative results, increasing source strength linearly increases it in the negative direction
-    As such the system at least functions. The problem must be here or in the Get_Properties function"""
-    
+    #Multigroup implementation is apparently based on defining boundary fluxes for each group in each region
     for a in range(Num_Groups):
-        #Define source matrix. Will be 100 at centerline for group 1, 0 for everything else
-        if a == 0:
-            Source_Matr[0] = 100 #Note that this represents the first step, as a true 0 position causes singularities
-        else:
-            Source_Matr[0] = 0
+        #Define source matrix.
+
         for i in range(len(R_Points)):#Iterate through mesh points. Start at 1 because 0 results in a singularity
             #DEfining positions    
             Get_Properties(i,a)
+            #Define source term.  Will be fixed strength (weak) within the rod. NEed to accomodate different slice size
+            if R_Points[i] < Cylinder_Radius:
+                Source_Matr[i] = -100 * Step_Width/R_Points[i] #Note that this represents the first step, as a true 0 position causes singularities
+            else: 
+                Source_Matr[i] = 0
             #Diffusion term
             if One_Group_Toggle==True:
                 #Always do middle term, which is the longest, naturally
@@ -158,10 +164,11 @@ def Numerical_Soln():
                     Group_Matr[i][i+1]=Flux_plusone
                 #Last point, don't draw forward term
                 #Now solve. Note we're not starting at zero point
-                Sparse_A=sparse.csr_matrix(Group_Matr)
-                Final_Fluxes=lin.spsolve(Sparse_A,Source_Matr)
+            
             else:
                 print("Multigroup system coming soon")
+    Sparse_A=sparse.csr_matrix(Group_Matr)
+    Final_Fluxes=lin.spsolve(Sparse_A,Source_Matr)
     print(Group_Matr) #Printout the matrix of values I found for A
     return Final_Fluxes
 
@@ -208,7 +215,7 @@ def Plot_Fluxes(): #Print out flux values for each group
     plt.axvline(x=Cylinder_Radius, color='black',linestyle='--', label='Edge of Fuel/Clad') #Indicate edge of the cylinder
     plt.xlabel("Radial distance from center (cm)")
     plt.ylabel("Group Flux (n / (cm\u00b2 * s)")
-    plt.title("Radial Distance vs Flux at t=" + str(Cur_Time) + " Seconds")
+    plt.title("Radial Distance vs Flux at Steady State")
     plt.legend()
     plt.show()
     
