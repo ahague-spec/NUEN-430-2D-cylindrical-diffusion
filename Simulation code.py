@@ -133,7 +133,9 @@ Source_Matr=np.zeros(Mesh_Points) #Source
 
 def Numerical_Soln():
     #Spatial discretization (for each group). Currently doing 1-group
-    #NOTE: Inscattering 
+    """While this function does not work right, producing negative results, increasing source strength linearly increases it in the negative direction
+    As such the system at least functions. The problem must be here or in the Get_Properties function"""
+    
     for a in range(Num_Groups):
         #Define source matrix. Will be 100 at centerline for group 1, 0 for everything else
         if a == 0:
@@ -213,3 +215,4 @@ def Plot_Fluxes(): #Print out flux values for each group
 Plot_Fluxes() #Run plotting code
 #Find_L2_Error()#Find and print out L2 error if we're doing analytical solution. Finish that
 #End of code
+
