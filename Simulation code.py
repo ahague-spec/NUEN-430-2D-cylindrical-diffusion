@@ -3,6 +3,8 @@
 """Current problems:
     Graph changes with mesh size, but shape does not. Source term is most likely to blame
     Need Analytical and multi-group solutions
+    Likely gonna make this a 1-group solution with total flux, averaging cross sections
+    We likely won't have time for the multigroup
     """
 
 import numpy as np
@@ -10,6 +12,7 @@ import matplotlib.pyplot as plt
 import math
 from scipy import sparse
 import scipy.sparse.linalg as lin
+from scipy.special import i0
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
@@ -87,7 +90,7 @@ for i in range(Num_Groups): #Run this loop to define placeholder values for Flux
 
 
 def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe between two groups
-    global Cur_R,R_minhalf,R_plushalf,Next_R,Prev_R,InScattering_Coeff,Flux_plusone,Flux_minone,Diff_Cur_Flux,D_plushalf,D_minhalf,Fission_Coeff,Inscattering_Coeff,Removal_Coeff
+    global Cur_R,R_minhalf,R_plushalf,Next_R,Prev_R,InScattering_Coeff,Flux_plusone,Flux_minone,Cur_Diff_Coeff,Diff_Cur_Flux,D_plushalf,D_minhalf,Fission_Coeff,Inscattering_Coeff,Removal_Coeff
     #First define everything here as global
     Cur_R = R_Points[mesh_position] #Position of current cell, all that matters for everything but diffusion
     R_minhalf = Cur_R - Step_Width/2 #Position i-1/2
@@ -98,40 +101,73 @@ def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe 
     if Next_R<Cylinder_Radius: #if next R is still in cylinder, it's all in cylinder
         D_plushalf=Fuel_Clad_Diff_Coeffs[cur_group] 
         D_minhalf=Fuel_Clad_Diff_Coeffs[cur_group] 
+        Cur_Diff_Coeff = Fuel_Clad_Diff_Coeffs[cur_group]
         if One_Group_Toggle==True:
             Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
             InScattering_Coeff=0 #No inscattering with only 1 group
+            Removal_Coeff= Fuel_Clad_Abs_CS[0] + Fuel_Clad_Fission_CS[0] #No in or out scattering in 1-group
         else:
             Fission_Coeff = -1 #Placeholder, this and inscattering are based on other groups
             InScattering_Coeff= -1 #Placeholder
-        Removal_Coeff = Fuel_Clad_Total_CS[cur_group] - Fuel_Clad_Scat_Matr[cur_group][cur_group] #Because current R is in cylinder
+            Removal_Coeff = Fuel_Clad_Total_CS[cur_group] - Fuel_Clad_Scat_Matr[cur_group][cur_group] #Because current R is in cylinder
         """Fission Coeff and scattering gain are dependant on other energy groups"""
     elif Prev_R>Cylinder_Radius: #If Previous R is outside cylinder, all outside
         D_plushalf=Mod_Diff_Coeffs[cur_group]
         D_minhalf=Mod_Diff_Coeffs[cur_group]
         Fission_Coeff = 0 #No fission outside cylinder
-        Removal_Coeff = Mod_Total_CS[cur_group] - Mod_Scat_Matr[cur_group][cur_group] #Removal = total-inscattering
+        Cur_Diff_Coeff=Mod_Diff_Coeffs[cur_group]
+        if One_Group_Toggle==True:
+            Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
+            InScattering_Coeff=0 #No inscattering with only 1 group
+            Removal_Coeff= Mod_Abs_CS[0] #No in or out scattering in 1-group
+            
+        else:
+            Fission_Coeff = -1 #Placeholder, this and inscattering are based on other groups
+            InScattering_Coeff= -1 #Placeholder
+            Removal_Coeff = Mod_Total_CS[cur_group] - Mod_Scat_Matr[cur_group][cur_group] #Removal = total-inscattering
     elif Prev_R<Cylinder_Radius: #If previous R is inside cylinder, and Next R isn't, 
         if Cur_R<Cylinder_Radius: #If current R is in cylinder, next R must not be
             D_plushalf=((Mod_Diff_Coeffs[cur_group]**-1 + Fuel_Clad_Diff_Coeffs[cur_group]**-1)/2)**-1  #Harmonic averaging
             D_minhalf=Mod_Diff_Coeffs[cur_group]
+            Cur_Diff_Coeff = Fuel_Clad_Diff_Coeffs[cur_group]
             if One_Group_Toggle==True:
                 Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
+                Removal_Coeff = Fuel_Clad_Abs_CS[0]
+                
             else: 
                 Fission_Coeff = -1 #Placeholder
-            Removal_Coeff = Fuel_Clad_Total_CS[cur_group] - Fuel_Clad_Scat_Matr[cur_group][cur_group] #Current R in cylinder
+                Removal_Coeff = Fuel_Clad_Total_CS[cur_group] - Fuel_Clad_Scat_Matr[cur_group][cur_group] #Current R in cylinder
         else: #Current and next R are outside cylinder
             D_plushalf= Fuel_Clad_Diff_Coeffs[cur_group]
             D_minhalf= ((Mod_Diff_Coeffs[cur_group]**-1 + Fuel_Clad_Diff_Coeffs[cur_group]**-1)/2)**-1 
             Fission_Coeff=0
-            Removal_Coeff = Mod_Total_CS[cur_group] - Mod_Scat_Matr[cur_group][cur_group] #Removal = total-inscattering
+            Cur_Diff_Coeff=Mod_Diff_Coeffs[cur_group]
+            if One_Group_Toggle==True:
+                Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
+                Removal_Coeff = Mod_Abs_CS[0]
+            else: 
+                Fission_Coeff = -1 #Placeholder
+                Removal_Coeff = Mod_Total_CS[cur_group] - Mod_Scat_Matr[cur_group][cur_group] #Removal = total-inscattering
     Flux_plusone=R_plushalf*D_plushalf/(Cur_R*Step_Width**2) #Diffusion term coefficient
     Diff_Cur_Flux=-((R_plushalf*D_plushalf + R_minhalf*D_minhalf) / (Cur_R*Step_Width**2)) #This one is all negative
     Flux_minone=R_minhalf*D_minhalf /(Cur_R*Step_Width**2)
     
 def Analytical_Soln():
     print("yeah")
+    Anal_Fluxes=np.empty(Mesh_Points)
     
+    for i in range(Mesh_Points):
+        Get_Properties(i,0) #Get properties for current point. Always in first group
+        B_Term = (Removal_Coeff-Fission_Coeff)/Cur_Diff_Coeff #This is the B2 term
+        Extrap_Bessel=i0(math.sqrt(B_Term)*max(Greatest_Extents)) #I0 function for Rex
+        Cur_Bessel=i0(math.sqrt(B_Term)*Mesh_Points[i]) #I0 function for r
+        if R_Points[i] > Cylinder_Radius: #If we're outside the cylinder
+            Part_Soln = Source_Strength/(Removal_Coeff-Fission_Coeff)
+            """Fission needs to be taken into account here"""
+        else: #We must be in the fuel/clad
+            print("In fuel, particular solution is zero")
+            Part_Soln=0
+        
 
     
 Group_Matr=np.zeros((Mesh_Points,Mesh_Points)) #Matrix for position values, only 3 along middle will have values (in 1 group)
@@ -148,7 +184,7 @@ def Numerical_Soln():
             Get_Properties(i,a)
             #Define source term.  Will be fixed strength (weak) within the rod. NEed to accomodate different slice size
             if R_Points[i] < Cylinder_Radius:
-                Source_Matr[i] = -100 #Note that this represents every point within the cylinder. Needs adjustment, changing mesh size seems to alter
+                Source_Matr[i] = -Source_Strength #Note that this represents every point within the cylinder. Needs adjustment, changing mesh size seems to alter
             else: 
                 Source_Matr[i] = 0
             #Diffusion term
