@@ -1,25 +1,13 @@
-"""Fuel_Height = 381 #Height of overall rod, doesn't matter due to 1D assumption
-#. This is handled at the function for initialization of arrays
-#Everything past the cladding is assumed to be coolant, fuel and clad are homogenized
-#Properties for fuel/clad and moderator. Acquired from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX.PDF"""
-
-""""#Diffusion coefficients are derived from transport cross section (1/(3*(Tr_CS + Abs_CS)))"""
-#start of code, import some stuff
-
 """Current problems:
-    Graph changes with mesh size, but shape does not. Source term is most likely to blame
-    Need Analytical solutions
-    Likely gonna make this a 1-group solution with total flux, averaging cross sections
-    We likely won't have time for the multigroup
-    Average out material properties
+    Analytical solution does not match the numerical
     """
-
+#start of code, import some stuff
 import numpy as np
 import matplotlib.pyplot as plt
 import math
 from scipy import sparse
 import scipy.sparse.linalg as lin
-from scipy.special import i0
+from scipy.special import i0, j0, k0, j1, i1, k1
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
@@ -27,13 +15,14 @@ from scipy.special import i0
 Test_Convergence=True
     
 Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm
-Mesh_Points = 50 #How many mesh points are there going to be in our first trial? Changes results due to source term
-Source_Strength=100 #Strength of uniform fuel source
+Mesh_Points = 150 #How many mesh points are there going to be in our first trial? Changes results due to source term
+Source_Strength = 200 #Strength of uniform fuel source
 Total_Source = Source_Strength * np.pi * Cylinder_Radius**2 #Spread source throughout the cylinder. AI generated
 
-  #Fuel/Clad data
+#Properties for fuel/clad and moderator. Acquired from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX.PDF
+#Diffusion coefficients are derived from transport cross section (1/(3*(Tr_CS + Abs_CS)))
 
-#Average all of these properties for the 1-group model, now port them to the rest of the code
+#Average all of these properties for the 1-group model,
 Fuel_Clad_Abs_CS=[8.025e-3,3.717e-3,2.677e-2,9.624e-2,3.002e-2,0.1113,0.2828]
 Fuel_Clad_Avg_Abs_CS = sum(Fuel_Clad_Abs_CS)/len(Fuel_Clad_Abs_CS)
 Fuel_Clad_Total_CS=[2.12450E-01,3.55470E-01,4.85540E-01,5.59400E-01,3.18030E-01,4.01460E-01,5.70610E-01 ]
@@ -114,22 +103,78 @@ def Get_Properties(mesh_position): #Find properties at a point, maybe between tw
         Flux_minone=R_minhalf*D_minhalf /(Cur_R*Step_Width**2)
     
     
-def Analytical_Soln():
-    print("yeah")
-    Anal_Fluxes=np.empty(Mesh_Points)
-    #Finish this once it gets fixed
-    for i in range(Mesh_Points):
-        Get_Properties(i) #Get properties for current point. Always in first group
-        B_Term = (Removal_Coeff-Fission_Coeff)/Cur_Diff_Coeff #This is the B2 term
-        Extrap_Bessel=i0(math.sqrt(B_Term)*Greatest_Extent) #I0 function for Rex
-        Cur_Bessel=i0(math.sqrt(B_Term)*R_Points[i]) #I0 function for r
-        if R_Points[i] > Cylinder_Radius: #If we're outside the cylinder
-            Part_Soln = Source_Strength/(Removal_Coeff-Fission_Coeff)
-            """Fission needs to be taken into account here"""
-        else: #We must be in the fuel/clad
-            print("In fuel, particular solution is zero")
-            Part_Soln=0
-    return Anal_Fluxes
+
+def Analytical_Soln(): #Shape is right, but magnitude is wrong. ChatGPT can't fix
+    phi_anal = np.zeros_like(R_Points)
+
+    a = Cylinder_Radius
+    R = Greatest_Extent
+
+    # --- Fuel properties ---
+    Df = Fuel_Clad_Avg_Diff_Coeff
+    Sa_f = Fuel_Clad_Avg_Abs_CS
+    Sf_eff = (Avg_Nu - 1.0) * Fuel_Clad_Avg_Fission_CS
+    S = Source_Strength
+
+    delta = Sf_eff - Sa_f
+    gamma = math.sqrt(abs(delta / Df))
+
+    # --- Moderator ---
+    Dm = Mod_Avg_Diff_Coeff
+    Sa_m = Mod_Avg_Abs_CS
+    Bm = math.sqrt(Sa_m / Dm)
+
+    # --- Particular solution ---
+    phi_p = -S / delta
+
+    # --- Choose fuel basis ---
+    if delta > 0:
+        # Supercritical fuel
+        fuel_func   = lambda r: j0(gamma * r)
+        fuel_deriv  = lambda r: -gamma * j1(gamma * r)
+    else:
+        # Subcritical fuel (your case)
+        fuel_func   = lambda r: i0(gamma * r)
+        fuel_deriv  = lambda r: gamma * i1(gamma * r)
+
+    # --- Linear system ---
+    eq1 = [
+        fuel_func(a),
+        -i0(Bm * a),
+        -k0(Bm * a)
+    ]
+    rhs1 = -phi_p
+
+    eq2 = [
+        Df * fuel_deriv(a),
+        -Dm * Bm * i1(Bm * a),
+        Dm * Bm * k1(Bm * a)
+    ]
+    rhs2 = 0.0
+
+    eq3 = [
+        0.0,
+        i0(Bm * R),
+        k0(Bm * R)
+    ]
+    rhs3 = 0.0
+
+    A_mat = np.array([eq1, eq2, eq3])
+    b_vec = np.array([rhs1, rhs2, rhs3])
+
+    A, C, D = np.linalg.solve(A_mat, b_vec)
+
+    # --- Evaluate flux ---
+    for i, r in enumerate(R_Points):
+        if r <= a:
+            phi_anal[i] = A * fuel_func(r) + phi_p
+        else:
+            phi_anal[i] = C * i0(Bm * r) + D * k0(Bm * r)
+
+    return phi_anal
+
+
+
 
 def Numerical_Soln(): #This function was heavily edited by ChatGPT
     Group_Matr = np.zeros((Mesh_Points, Mesh_Points))
@@ -137,10 +182,9 @@ def Numerical_Soln(): #This function was heavily edited by ChatGPT
     
     for i in range(Mesh_Points):
         Get_Properties(i)
-        r = R_Points[i]
 
         # -------------------
-        # CENTERLINE (symmetry)
+        # CENTERLINE (symmetry condition)
         # -------------------
         if i == 0:
             
@@ -152,7 +196,7 @@ def Numerical_Soln(): #This function was heavily edited by ChatGPT
             continue
 
         # -------------------
-        # OUTER BOUNDARY (vacuum)
+        # OUTER BOUNDARY (Assumed zero)
         # -------------------
         if i == Mesh_Points - 1:
             Group_Matr[i, i] = 1.0
@@ -160,15 +204,14 @@ def Numerical_Soln(): #This function was heavily edited by ChatGPT
             continue
 
         # -------------------
-        # INTERIOR POINTS
+        # INTERIOR POINTS (Anything between origin and zero bound)
         # -------------------
         
-
         Group_Matr[i, i-1] = Flux_minone
         Group_Matr[i, i]   = Diff_Cur_Flux + Fission_Coeff - Removal_Coeff
         Group_Matr[i, i+1] = Flux_plusone
 
-        if r < Cylinder_Radius:
+        if Cur_R < Cylinder_Radius:
             Source_Matr[i] = -Source_Strength
         else:
             Source_Matr[i] = 0.0
@@ -176,7 +219,7 @@ def Numerical_Soln(): #This function was heavily edited by ChatGPT
     Sparse_A = sparse.csr_matrix(Group_Matr)
     return lin.spsolve(Sparse_A, Source_Matr)
 
-
+#Run flux calculation questions
 Flux_Array = Numerical_Soln()
 Anal_Flux_Array=Analytical_Soln()
 
@@ -202,10 +245,10 @@ def Find_L2_Error(): #For analytical solution, finds Least mean squared error be
     print("Greatest error =", max_error)
 
 def Plot_Fluxes(): #Print out flux values for each group
-    for i in range(Mesh_Points):
-        print("Flux at point", R_Points[i], "cm =", Flux_Array[i])
+    #for i in range(Mesh_Points):
+     #   print("Flux at point", R_Points[i], "cm =", Flux_Array[i])
     plt.plot(R_Points,Flux_Array,color="red",label="Numerical Flux")
-    #plt.plot(R_Points,Anal_Flux,color="blue",linestyle='-',label='Analytical Flux')
+    plt.plot(R_Points,Anal_Flux_Array,color="blue",linestyle='--',label='Analytical Flux')
     plt.axvline(x=Cylinder_Radius, color='black',linestyle='--', label='Edge of Fuel/Clad') #Indicate edge of the cylinder
     plt.xlabel("Radial distance from center (cm)")
     plt.ylabel("Group Flux (n / (cm\u00b2 * s)")
@@ -214,5 +257,10 @@ def Plot_Fluxes(): #Print out flux values for each group
     plt.show()
     
 Plot_Fluxes() #Run plotting code
+#Print out first values
+print(Anal_Flux_Array[0])
+print(Flux_Array[0])
 #Find_L2_Error()#Find and print out L2 error if we're doing analytical solution. Finish that
 #End of code
+
+
