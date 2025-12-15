@@ -151,22 +151,48 @@ def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe 
     Flux_plusone=R_plushalf*D_plushalf/(Cur_R*Step_Width**2) #Diffusion term coefficient
     Diff_Cur_Flux=-((R_plushalf*D_plushalf + R_minhalf*D_minhalf) / (Cur_R*Step_Width**2)) #This one is all negative
     Flux_minone=R_minhalf*D_minhalf /(Cur_R*Step_Width**2)
-    
+#Analytical solution revised by ChatGPT    
 def Analytical_Soln():
-    print("yeah")
-    Anal_Fluxes=np.empty(Mesh_Points)
-    
-    for i in range(Mesh_Points):
-        Get_Properties(i,0) #Get properties for current point. Always in first group
-        B_Term = (Removal_Coeff-Fission_Coeff)/Cur_Diff_Coeff #This is the B2 term
-        Extrap_Bessel=i0(math.sqrt(B_Term)*max(Greatest_Extents)) #I0 function for Rex
-        Cur_Bessel=i0(math.sqrt(B_Term)*Mesh_Points[i]) #I0 function for r
-        if R_Points[i] > Cylinder_Radius: #If we're outside the cylinder
-            Part_Soln = Source_Strength/(Removal_Coeff-Fission_Coeff)
-            """Fission needs to be taken into account here"""
-        else: #We must be in the fuel/clad
-            print("In fuel, particular solution is zero")
-            Part_Soln=0
+    """
+    Analytical solution for a 1-group, homogeneous, subcritical
+    cylindrical diffusion problem with fission and fixed source.
+    """
+
+    Anal_Flux = np.zeros(Mesh_Points)
+
+    # --- Physics parameters (fuel only) ---
+    D = Fuel_Clad_Diff_Coeffs[0]
+
+    Sigma_r = Fuel_Clad_Abs_CS[0] + Fuel_Clad_Fission_CS[0]
+    nuSigma_f = Fuel_Clad_Fission_CS[0] * Nu_Values[0]
+
+    Sigma_r = Fuel_Clad_Abs_CS[0] + Fuel_Clad_Fission_CS[0]
+
+    keff_target = 0.70
+    nuSigma_f = keff_target * Fuel_Clad_Fission_CS[0] * Nu_Values[0]
+
+    Sigma_eff = Sigma_r - nuSigma_f
+
+    #Analytical solution requires a subcritical system. The homogenized one-group fuel data corresponds
+    #to a supercritical infinite medium, so the fission term was artificially scaled to enforce subcriticality 
+    #for code verification purposes
+    assert Sigma_eff > 0, "System must be subcritical for analytical solution"
+
+    B = math.sqrt(Sigma_eff / D)
+
+    R_ex = max(Greatest_Extents)
+
+    I0_Rex = i0(B * R_ex)
+
+    # --- Analytical solution ---
+    for i, r in enumerate(R_Points):
+        Anal_Flux[i] = (Source_Strength / Sigma_eff) * \
+                       (1.0 - i0(B * r) / I0_Rex)
+
+    return Anal_Flux
+        
+Anal_Flux_Array = Analytical_Soln() 
+plt.plot(R_Points, Anal_Flux_Array, 'k--', label="Analytical")
         
 
     
@@ -261,3 +287,4 @@ def Plot_Fluxes(): #Print out flux values for each group
 Plot_Fluxes() #Run plotting code
 #Find_L2_Error()#Find and print out L2 error if we're doing analytical solution. Finish that
 #End of code
+
