@@ -1,10 +1,17 @@
+"""Fuel_Height = 381 #Height of overall rod, doesn't matter due to 1D assumption
+#. This is handled at the function for initialization of arrays
+#Everything past the cladding is assumed to be coolant, fuel and clad are homogenized
+#Properties for fuel/clad and moderator. Acquired from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX.PDF"""
+
+""""#Diffusion coefficients are derived from transport cross section (1/(3*(Tr_CS + Abs_CS)))"""
 #start of code, import some stuff
 
 """Current problems:
     Graph changes with mesh size, but shape does not. Source term is most likely to blame
-    Need Analytical and multi-group solutions
+    Need Analytical solutions
     Likely gonna make this a 1-group solution with total flux, averaging cross sections
     We likely won't have time for the multigroup
+    Average out material properties
     """
 
 import numpy as np
@@ -16,81 +23,48 @@ from scipy.special import i0
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
-One_Group_Toggle=True #Toggle whether or not we're using one group or seven, for analytical testing
+
 Test_Convergence=True
-if One_Group_Toggle==True: #Set number of groups. Code could theoreticall accomodate any number, but we're only using 1 and 7
-    Num_Groups= 1
-else:
-    Num_Groups = 7
     
 Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm
 Mesh_Points = 50 #How many mesh points are there going to be in our first trial? Changes results due to source term
-Source_Strength=100 #Strength of point centreline source
-"""Fuel_Height = 381 #Height of overall rod, doesn't matter due to 1D assumption
-#. This is handled at the function for initialization of arrays
-#Everything past the cladding is assumed to be coolant, fuel and clad are homogenized
-#Properties for fuel/clad and moderator. Acquired from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX.PDF"""
+Source_Strength=100 #Strength of uniform fuel source
+Total_Source = Source_Strength * np.pi * Cylinder_Radius**2 #Spread source throughout the cylinder. AI generated
 
-""""#Diffusion coefficients are derived from transport cross section (1/(3*(Tr_CS + Abs_CS)))"""
   #Fuel/Clad data
-Fuel_Clad_Scat_Matr=[[1.27537E-01, 4.23780E-02, 9.43740E-06, 5.51630E-09, 0.00000E+00, 0.00000E+00, 0.00000E+00],
-[0.00000E+00, 3.24456E-01, 1.63140E-03, 3.14270E-09, 0.00000E+00, 0.00000E+00, 0.00000E+00],
-[0.00000E+00, 0.00000E+00, 4.50940E-01, 2.67920E-03, 0.00000E+00, 0.00000E+00, 0.00000E+00],
-[0.00000E+00, 0.00000E+00, 0.00000E+00, 4.52565E-01, 5.56640E-03, 0.00000E+00, 0.00000E+00],
-[0.00000E+00, 0.00000E+00, 0.00000E+00, 1.25250E-04, 2.71401E-01, 1.02550E-02, 1.00210E-08],
-[0.00000E+00, 0.00000E+00, 0.00000E+00, 0.00000E+00, 1.29680E-03, 2.65802E-01, 1.68090E-02],
-[0.00000E+00, 0.00000E+00, 0.00000E+00, 0.00000E+00, 0.00000E+00, 8.54580E-03, 2.73080E-01]]
 
-Fuel_Clad_Fission_Spectrum=[0.5879,0.4118,3.391e-4,1.176e-7,0,0,0]
+#Average all of these properties for the 1-group model, now port them to the rest of the code
 Fuel_Clad_Abs_CS=[8.025e-3,3.717e-3,2.677e-2,9.624e-2,3.002e-2,0.1113,0.2828]
+Fuel_Clad_Avg_Abs_CS = sum(Fuel_Clad_Abs_CS)/len(Fuel_Clad_Abs_CS)
 Fuel_Clad_Total_CS=[2.12450E-01,3.55470E-01,4.85540E-01,5.59400E-01,3.18030E-01,4.01460E-01,5.70610E-01 ]
+Fuel_Clad_Avg_Total_CS = sum(Fuel_Clad_Total_CS)/len(Fuel_Clad_Total_CS)
 Fuel_Clad_Fission_CS=[7.212e-3,8.193e-4,6.453e-3,1.8565e-2,1.781e-2,8.303e-2,0.216]
+Fuel_Clad_Avg_Fission_CS=sum(Fuel_Clad_Fission_CS)/len(Fuel_Clad_Fission_CS)
 Nu_Values=[2.7815,2.4744,2.4338,2.4338,2.4338,2.4338,2.4338] #Neutrons per fission
+Avg_Nu=sum(Nu_Values)/len(Nu_Values)
 Fuel_Clad_Diff_Coeffs=[1.7924,0.9994,0.6573,0.5123,0.9752,0.6582,0.3935]
+Fuel_Clad_Avg_Diff_Coeff=sum(Fuel_Clad_Diff_Coeffs)/len(Fuel_Clad_Diff_Coeffs)
 
-  #Moderator data
-Mod_Scat_Matr = [[4.44777E-02, 1.13400E-01, 7.23470E-04, 3.74990E-06, 5.31840E-08, 0.00000E+00, 0.00000E+00],
-[0.00000E+00, 2.82334E-01, 1.29940E-01, 6.23400E-04, 4.80020E-05, 7.44860E-06, 1.04550E-06],
-[0.00000E+00, 0.00000E+00, 3.45256E-01, 2.24570E-01, 1.69990E-02, 2.64430E-03, 5.03440E-04],
-[0.00000E+00, 0.00000E+00, 0.00000E+00, 9.10284E-02, 4.15510E-01, 6.37320E-02, 1.21390E-02],
-[0.00000E+00, 0.00000E+00, 0.00000E+00, 7.14370E-05, 1.39138E-01, 5.11820E-01, 6.12290E-02],
-[00.00000E+00, 0.00000E+00, 0.00000E+00, 0.00000E+00, 0.00000E+00, 1.32440E-01, 2.48070E+00]]
     #No fission in the moderator (duh)
 Mod_Diff_Coeffs =[2.0858,0.8071,0.5644,0.5686,0.4606,0.2627,0.1240] 
+Mod_Avg_Diff_Coeff = sum(Mod_Diff_Coeffs)/len(Mod_Diff_Coeffs)
 Mod_Abs_CS= [6.0105e-4,1.5793e-5,3.37160E-04,1.94060E-03,5.74160E-03,1.50010E-02,3.72390E-02]
+Mod_Avg_Abs_CS= sum(Mod_Abs_CS)/len(Mod_Abs_CS)
 Mod_Total_CS= [2.30070E-01,7.76460E-01,1.4842,1.5052,1.5592,2.0254,3.3057]
+Mod_Avg_Total_CS =  sum(Mod_Total_CS)/len(Mod_Total_CS)
 
-"""#Scattering is from column group to row group 
-#(i.e 0.2823 is  group 2 -> group 2, 0.1324 is 7->6 etc.)
-#Coordinates in calls are [rows down][columns right] from top left (Which is 0,0)
-This is just reference material for me, cuz I tend to forget python does x,y in the opposite way it usually is"""
-#def Initialize(Mesh_Points): #Set all of the empty/zeroes arrays, in case multiple trials need to be run. Might be a pain because global variables
 
-Greatest_Extents=np.empty(Num_Groups) #based on zero-edge assumptuion, find the zero-point for each energy group
-for i in range(Num_Groups): #Loop populates extrapolation distance array. Contains positions for zero-flux assumption. Constant
-    Greatest_Extents[i]=Cylinder_Radius+2*(Mod_Diff_Coeffs[i]) 
-Step_Width=max(Greatest_Extents)/(Mesh_Points-1)
+Greatest_Extent=Cylinder_Radius+2*(Mod_Avg_Diff_Coeff)
+Step_Width=Greatest_Extent/(Mesh_Points-1)
 
-R_Points=np.linspace(Step_Width,max(Greatest_Extents),Mesh_Points) #Points between centerline and greatest extent. Not all groups will reach this far
-#Starting at first point, due to singularity at 0
+R_Points=np.linspace(0,Greatest_Extent,Mesh_Points) #Points between centerline and greatest extent. Not all groups will reach this far
+#Singularity at zero requires special treatment
 
-#Step_Width=R_Points[1]-R_Points[0] #Find the width of a step between two slices
-Flux_Array=np.zeros((Num_Groups,len(R_Points)))#Create empty array to store flux values at each point
+Flux_Array=np.zeros((len(R_Points)))#Create empty array to store flux values at each point
 Anal_Flux=np.zeros((len(R_Points))) #Create 1D array to store flux values for 1-group analytical solution
-#Loop just defines values for graph testing,
 
-for i in range(Num_Groups): #Run this loop to define placeholder values for Flux_Array
-    for j in range(Mesh_Points):
-        if R_Points[j]>Greatest_Extents[i]:
-            Flux_Array[i][j]=0
-            Anal_Flux[j]=0
-        else:
-            Flux_Array[i][j]=i**2 + j**2
-            Anal_Flux[j]=i**2 + j**2 + 1
-
-
-def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe between two groups
-    global Cur_R,R_minhalf,R_plushalf,Next_R,Prev_R,InScattering_Coeff,Flux_plusone,Flux_minone,Cur_Diff_Coeff,Diff_Cur_Flux,D_plushalf,D_minhalf,Fission_Coeff,Inscattering_Coeff,Removal_Coeff
+def Get_Properties(mesh_position): #Find properties at a point, maybe between two groups
+    global Cur_R,R_minhalf,R_plushalf,Next_R,Prev_R,Flux_plusone,Flux_minone,Cur_Diff_Coeff,Diff_Cur_Flux,D_plushalf,D_minhalf,Fission_Coeff,Removal_Coeff
     #First define everything here as global
     Cur_R = R_Points[mesh_position] #Position of current cell, all that matters for everything but diffusion
     R_minhalf = Cur_R - Step_Width/2 #Position i-1/2
@@ -98,149 +72,113 @@ def Get_Properties(mesh_position,cur_group): #Find properties at a point, maybe 
     Next_R = R_Points[mesh_position] + Step_Width #Position i+1
     Prev_R = R_Points[mesh_position] - Step_Width #Position i-1
     #Finding properties to use, define 
+
     if Next_R<Cylinder_Radius: #if next R is still in cylinder, it's all in cylinder
-        D_plushalf=Fuel_Clad_Diff_Coeffs[cur_group] 
-        D_minhalf=Fuel_Clad_Diff_Coeffs[cur_group] 
-        Cur_Diff_Coeff = Fuel_Clad_Diff_Coeffs[cur_group]
-        if One_Group_Toggle==True:
-            Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
-            InScattering_Coeff=0 #No inscattering with only 1 group
-            Removal_Coeff= Fuel_Clad_Abs_CS[0] + Fuel_Clad_Fission_CS[0] #No in or out scattering in 1-group
-        else:
-            Fission_Coeff = -1 #Placeholder, this and inscattering are based on other groups
-            InScattering_Coeff= -1 #Placeholder
-            Removal_Coeff = Fuel_Clad_Total_CS[cur_group] - Fuel_Clad_Scat_Matr[cur_group][cur_group] #Because current R is in cylinder
-        """Fission Coeff and scattering gain are dependant on other energy groups"""
+        D_plushalf=Fuel_Clad_Avg_Diff_Coeff 
+        D_minhalf=Fuel_Clad_Avg_Diff_Coeff
+        Cur_Diff_Coeff = Fuel_Clad_Avg_Diff_Coeff
+        Fission_Coeff = Fuel_Clad_Avg_Fission_CS*Avg_Nu
+        Removal_Coeff= Fuel_Clad_Avg_Abs_CS + Fuel_Clad_Avg_Fission_CS #No in or out scattering in 1-group
+ #Because current R is in cylinder
+       
     elif Prev_R>Cylinder_Radius: #If Previous R is outside cylinder, all outside
-        D_plushalf=Mod_Diff_Coeffs[cur_group]
-        D_minhalf=Mod_Diff_Coeffs[cur_group]
+        D_plushalf=Mod_Avg_Diff_Coeff
+        D_minhalf=Mod_Avg_Diff_Coeff
         Fission_Coeff = 0 #No fission outside cylinder
-        Cur_Diff_Coeff=Mod_Diff_Coeffs[cur_group]
-        if One_Group_Toggle==True:
-            Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
-            InScattering_Coeff=0 #No inscattering with only 1 group
-            Removal_Coeff= Mod_Abs_CS[0] #No in or out scattering in 1-group
-            
-        else:
-            Fission_Coeff = -1 #Placeholder, this and inscattering are based on other groups
-            InScattering_Coeff= -1 #Placeholder
-            Removal_Coeff = Mod_Total_CS[cur_group] - Mod_Scat_Matr[cur_group][cur_group] #Removal = total-inscattering
+        Cur_Diff_Coeff=Mod_Avg_Diff_Coeff
+        Removal_Coeff= Mod_Avg_Abs_CS #No in or out scattering in 1-group
+
     elif Prev_R<Cylinder_Radius: #If previous R is inside cylinder, and Next R isn't, 
         if Cur_R<Cylinder_Radius: #If current R is in cylinder, next R must not be
-            D_plushalf=((Mod_Diff_Coeffs[cur_group]**-1 + Fuel_Clad_Diff_Coeffs[cur_group]**-1)/2)**-1  #Harmonic averaging
-            D_minhalf=Mod_Diff_Coeffs[cur_group]
-            Cur_Diff_Coeff = Fuel_Clad_Diff_Coeffs[cur_group]
-            if One_Group_Toggle==True:
-                Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
-                Removal_Coeff = Fuel_Clad_Abs_CS[0]
-                
-            else: 
-                Fission_Coeff = -1 #Placeholder
-                Removal_Coeff = Fuel_Clad_Total_CS[cur_group] - Fuel_Clad_Scat_Matr[cur_group][cur_group] #Current R in cylinder
+            D_plushalf=((Mod_Avg_Diff_Coeff**-1 + Fuel_Clad_Avg_Diff_Coeff**-1)/2)**-1  #Harmonic averaging
+            D_minhalf=Mod_Avg_Diff_Coeff
+            """Make this function use average properties, everything below here should be made into average values"""
+            Cur_Diff_Coeff = Fuel_Clad_Avg_Diff_Coeff
+            Fission_Coeff = Fuel_Clad_Avg_Fission_CS*Avg_Nu
+            Removal_Coeff = Fuel_Clad_Avg_Abs_CS + Fuel_Clad_Avg_Fission_CS
+
         else: #Current and next R are outside cylinder
-            D_plushalf= Fuel_Clad_Diff_Coeffs[cur_group]
-            D_minhalf= ((Mod_Diff_Coeffs[cur_group]**-1 + Fuel_Clad_Diff_Coeffs[cur_group]**-1)/2)**-1 
+            D_plushalf= Fuel_Clad_Avg_Diff_Coeff
+            D_minhalf= ((Mod_Avg_Diff_Coeff**-1 + Fuel_Clad_Avg_Diff_Coeff**-1)/2)**-1 
             Fission_Coeff=0
-            Cur_Diff_Coeff=Mod_Diff_Coeffs[cur_group]
-            if One_Group_Toggle==True:
-                Fission_Coeff = Fuel_Clad_Fission_CS[0]*Nu_Values[0] 
-                Removal_Coeff = Mod_Abs_CS[0]
-            else: 
-                Fission_Coeff = -1 #Placeholder
-                Removal_Coeff = Mod_Total_CS[cur_group] - Mod_Scat_Matr[cur_group][cur_group] #Removal = total-inscattering
-    Flux_plusone=R_plushalf*D_plushalf/(Cur_R*Step_Width**2) #Diffusion term coefficient
-    Diff_Cur_Flux=-((R_plushalf*D_plushalf + R_minhalf*D_minhalf) / (Cur_R*Step_Width**2)) #This one is all negative
-    Flux_minone=R_minhalf*D_minhalf /(Cur_R*Step_Width**2)
-#Analytical solution revised by ChatGPT    
-def Analytical_Soln():
-    """
-    Analytical solution for a 1-group, homogeneous, subcritical
-    cylindrical diffusion problem with fission and fixed source.
-    """
-
-    Anal_Flux = np.zeros(Mesh_Points)
-
-    # --- Physics parameters (fuel only) ---
-    D = Fuel_Clad_Diff_Coeffs[0]
-
-    Sigma_r = Fuel_Clad_Abs_CS[0] + Fuel_Clad_Fission_CS[0]
-    nuSigma_f = Fuel_Clad_Fission_CS[0] * Nu_Values[0]
-
-    Sigma_r = Fuel_Clad_Abs_CS[0] + Fuel_Clad_Fission_CS[0]
-
-    keff_target = 0.70
-    nuSigma_f = keff_target * Fuel_Clad_Fission_CS[0] * Nu_Values[0]
-
-    Sigma_eff = Sigma_r - nuSigma_f
-
-    #Analytical solution requires a subcritical system. The homogenized one-group fuel data corresponds
-    #to a supercritical infinite medium, so the fission term was artificially scaled to enforce subcriticality 
-    #for code verification purposes
-    assert Sigma_eff > 0, "System must be subcritical for analytical solution"
-
-    B = math.sqrt(Sigma_eff / D)
-
-    R_ex = max(Greatest_Extents)
-
-    I0_Rex = i0(B * R_ex)
-
-    # --- Analytical solution ---
-    for i, r in enumerate(R_Points):
-        Anal_Flux[i] = (Source_Strength / Sigma_eff) * \
-                       (1.0 - i0(B * r) / I0_Rex)
-
-    return Anal_Flux
-        
-Anal_Flux_Array = Analytical_Soln() 
-plt.plot(R_Points, Anal_Flux_Array, 'k--', label="Analytical")
-        
-
+            Cur_Diff_Coeff=Mod_Avg_Diff_Coeff
+            Removal_Coeff= Mod_Avg_Abs_CS
     
-Group_Matr=np.zeros((Mesh_Points,Mesh_Points)) #Matrix for position values, only 3 along middle will have values (in 1 group)
-Source_Matr=np.zeros(Mesh_Points) #Source
+    if mesh_position==0:
+        Diff_Cur_Flux=0 #Removal and fission portion added elsewhere
+        Flux_plusone=0 #Zero'd like the diffusion term
+        Flux_minone=0
+    else:
+        Diff_Cur_Flux = -((R_plushalf*D_plushalf + R_minhalf*D_minhalf) / (Cur_R*Step_Width**2))#This one is all negative
+        Flux_plusone = R_plushalf*D_plushalf/(Cur_R*Step_Width**2) #Diffusion term coefficient
+        Flux_minone=R_minhalf*D_minhalf /(Cur_R*Step_Width**2)
+    
+    
+def Analytical_Soln():
+    print("yeah")
+    Anal_Fluxes=np.empty(Mesh_Points)
+    #Finish this once it gets fixed
+    for i in range(Mesh_Points):
+        Get_Properties(i) #Get properties for current point. Always in first group
+        B_Term = (Removal_Coeff-Fission_Coeff)/Cur_Diff_Coeff #This is the B2 term
+        Extrap_Bessel=i0(math.sqrt(B_Term)*Greatest_Extent) #I0 function for Rex
+        Cur_Bessel=i0(math.sqrt(B_Term)*R_Points[i]) #I0 function for r
+        if R_Points[i] > Cylinder_Radius: #If we're outside the cylinder
+            Part_Soln = Source_Strength/(Removal_Coeff-Fission_Coeff)
+            """Fission needs to be taken into account here"""
+        else: #We must be in the fuel/clad
+            print("In fuel, particular solution is zero")
+            Part_Soln=0
+    return Anal_Fluxes
 
-def Numerical_Soln():
-    #Spatial discretization (for each group). Currently doing 1-group
-    #Multigroup implementation is apparently based on defining boundary fluxes for each group in each region
-    for a in range(Num_Groups):
-        #Define source matrix.
+def Numerical_Soln(): #This function was heavily edited by ChatGPT
+    Group_Matr = np.zeros((Mesh_Points, Mesh_Points))
+    Source_Matr = np.zeros(Mesh_Points)
+    
+    for i in range(Mesh_Points):
+        Get_Properties(i)
+        r = R_Points[i]
 
-        for i in range(len(R_Points)):#Iterate through mesh points. Start at 1 because 0 results in a singularity
-            #DEfining positions    
-            Get_Properties(i,a)
-            #Define source term.  Will be fixed strength (weak) within the rod. NEed to accomodate different slice size
-            if R_Points[i] < Cylinder_Radius:
-                Source_Matr[i] = -Source_Strength #Note that this represents every point within the cylinder. Needs adjustment, changing mesh size seems to alter
-            else: 
-                Source_Matr[i] = 0
-            #Diffusion term
-            if One_Group_Toggle==True:
-                #Always do middle term, which is the longest, naturally
-                Group_Matr[i][i]= Diff_Cur_Flux + Fission_Coeff - Removal_Coeff #Diffusion,removal,fission
-                if i!=0: 
-                    #previous term, don't draw on first iteration
-                    Group_Matr[i][i-1]=Flux_minone
-                #At start, don't draw previous term
-                if i!=len(R_Points)-1:
-                    #Forward term
-                    Group_Matr[i][i+1]=Flux_plusone
-                #Last point, don't draw forward term
-                #Now solve. Note we're not starting at zero point
+        # -------------------
+        # CENTERLINE (symmetry)
+        # -------------------
+        if i == 0:
             
-            else:
-                print("Multigroup system coming soon")
-    Sparse_A=sparse.csr_matrix(Group_Matr)
-    Final_Fluxes=lin.spsolve(Sparse_A,Source_Matr)
-    print(Group_Matr) #Printout the matrix of values I found for A
-    return Final_Fluxes
+            Group_Matr[i, i]   = -2 * Cur_Diff_Coeff / Step_Width**2 \
+                                 + Fission_Coeff - Removal_Coeff
+            Group_Matr[i, i+1] =  2 * Cur_Diff_Coeff / Step_Width**2
 
-if One_Group_Toggle == True:
-    Flux_Array = Numerical_Soln()
-    Anal_Flux_Array=Analytical_Soln()
-else:
-    print("Nope")
+            Source_Matr[i] = -Source_Strength
+            continue
+
+        # -------------------
+        # OUTER BOUNDARY (vacuum)
+        # -------------------
+        if i == Mesh_Points - 1:
+            Group_Matr[i, i] = 1.0
+            Source_Matr[i] = 0.0
+            continue
+
+        # -------------------
+        # INTERIOR POINTS
+        # -------------------
+        
+
+        Group_Matr[i, i-1] = Flux_minone
+        Group_Matr[i, i]   = Diff_Cur_Flux + Fission_Coeff - Removal_Coeff
+        Group_Matr[i, i+1] = Flux_plusone
+
+        if r < Cylinder_Radius:
+            Source_Matr[i] = -Source_Strength
+        else:
+            Source_Matr[i] = 0.0
+
+    Sparse_A = sparse.csr_matrix(Group_Matr)
+    return lin.spsolve(Sparse_A, Source_Matr)
 
 
+Flux_Array = Numerical_Soln()
+Anal_Flux_Array=Analytical_Soln()
 
 def Find_L2_Error(): #For analytical solution, finds Least mean squared error between it and numerical solution
     Eo=0 #Difference between current values
@@ -248,7 +186,7 @@ def Find_L2_Error(): #For analytical solution, finds Least mean squared error be
     Total_Error=0 #Summation portion of error
     max_error=0
 #L2 code can be found in HW2 Q2C file
-    for z in range(len(Flux_Array[0]) - 1): #runs up to second to last value in both analytical and Numerical data arrays
+    for z in range(len(Flux_Array) - 1): #runs up to second to last value in both analytical and Numerical data arrays
         #start at 0, iterate to end
         cur_anal_flux = Anal_Flux[z] #Pull current flux value from array
         next_anal_flux = Anal_Flux[z+1] #Pull next flux value from array
@@ -264,27 +202,17 @@ def Find_L2_Error(): #For analytical solution, finds Least mean squared error be
     print("Greatest error =", max_error)
 
 def Plot_Fluxes(): #Print out flux values for each group
-    if (One_Group_Toggle == False): #Print out all 7 groups in pretty rainbow colors
-        plt.plot(R_Points,Flux_Array[0],color="red",label="Group 1 Flux")
-        plt.plot(R_Points,Flux_Array[1],color="orange",label="Group 2 Flux")
-        plt.plot(R_Points,Flux_Array[2],color="yellow",label="Group 3 Flux")
-        plt.plot(R_Points,Flux_Array[3],color="green",label="Group 4 Flux")
-        plt.plot(R_Points,Flux_Array[4],color="blue",label="Group 5 Flux")
-        plt.plot(R_Points,Flux_Array[5],color="indigo",label="Group 6 Flux")
-        plt.plot(R_Points,Flux_Array[6],color="violet",label="Group 7 Flux")
-    else: #If only one group, we only print out the first group and compare it to the analytical solution
-        for i in range(Mesh_Points):
-            print("Flux at point", R_Points[i], "cm =", Flux_Array[i])
-        plt.plot(R_Points,Flux_Array,color="red",label="Numerical Flux")
-        #plt.plot(R_Points,Anal_Flux,color="blue",linestyle='-',label='Analytical Flux')
+    for i in range(Mesh_Points):
+        print("Flux at point", R_Points[i], "cm =", Flux_Array[i])
+    plt.plot(R_Points,Flux_Array,color="red",label="Numerical Flux")
+    #plt.plot(R_Points,Anal_Flux,color="blue",linestyle='-',label='Analytical Flux')
     plt.axvline(x=Cylinder_Radius, color='black',linestyle='--', label='Edge of Fuel/Clad') #Indicate edge of the cylinder
     plt.xlabel("Radial distance from center (cm)")
     plt.ylabel("Group Flux (n / (cm\u00b2 * s)")
-    plt.title("Radial Distance vs Flux at Steady State")
+    plt.title("Radial Distance vs Total Flux at Steady State")
     plt.legend()
     plt.show()
     
 Plot_Fluxes() #Run plotting code
 #Find_L2_Error()#Find and print out L2 error if we're doing analytical solution. Finish that
 #End of code
-
