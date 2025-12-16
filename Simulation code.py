@@ -9,7 +9,7 @@ import scipy.sparse.linalg as lin
     
 Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm. 0.513 cm by default
 Mesh_Points = int(input("How many mesh points should there be for the First Trial? ")) #How many mesh points are there going to be in our first trial? Changes results due to source term
-Source_Strength = int(input("How Strong should the uniform fuel source be? ")) #Strength of uniform fuel source
+Source_Strength = int(input("How Strong should the uniform fuel source be? ")) #Strength of uniform fuel source in n/(cm^3*s)
 Refinement_Trials=int(input("How many refinements should be done to this mesh (max 7)? "))
 while Refinement_Trials>7 or Refinement_Trials<1:
     Refinement_Trials=int(input("Invalid input, how many refinement trials (min 1, max 7)? "))
@@ -45,11 +45,9 @@ Flux_Array=np.zeros((len(R_Points)))#Create empty array to store flux values at 
 
 def Initialize(): #Reset everything for repeated trials
     global Mesh_Points,Greatest_Extent,Step_Width,R_Points,Flux_Array
-    
     Step_Width=Greatest_Extent/(Mesh_Points-1)
     R_Points=np.linspace(0,Greatest_Extent,Mesh_Points) #Points between centerline and greatest extent
     Flux_Array=np.zeros((len(R_Points)))#Create empty array to store flux values at each point
-
 
 def Get_Properties(mesh_position): #Find properties at a point, maybe between two groups
     global Cur_R,R_minhalf,R_plushalf,Next_R,Prev_R,Flux_plusone,Flux_minone,Cur_Diff_Coeff,Diff_Cur_Flux,D_plushalf,D_minhalf,Fission_Coeff,Removal_Coeff
@@ -170,11 +168,10 @@ def Find_L2_Error(Prev_Flux,Cur_Flux): #Least mean square error between consecut
     print("Greatest error =", max_error)
 
 def Plot_Fluxes(): #Print out flux values
-    #plt.plot(R_Points,Flux_Array,color="red",label="Flux for " + str(Mesh_Points) + " Mesh Points")
     plt.axvline(x=Cylinder_Radius, color='black',linestyle='--', label='Edge of Fuel/Clad') #Indicate edge of the cylinder
     plt.xlabel("Radial distance from center (cm)")
     plt.ylabel("Total Flux (n / (cm\u00b2 * s)")
-    plt.title("Radial Distance vs Total Flux at Steady State (S=" + str(Source_Strength) +")")
+    plt.title("Radial Distance vs Total Flux at Steady State (S=" + str(Source_Strength) +" n/cm\u00b3*s)")
     plt.legend()
     plt.grid()
     plt.show()
