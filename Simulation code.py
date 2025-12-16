@@ -1,24 +1,18 @@
-"""Current problems:
-    Analytical solution does not match the numerical
-    """
 #start of code, import some stuff
 import numpy as np
 import matplotlib.pyplot as plt
-import math
 from scipy import sparse
 import scipy.sparse.linalg as lin
-from scipy.special import i0, j0, k0, j1, i1, k1
 
 #input data Rod and clad dimensions from: https://www.researchgate.net/figure/BWR-fuel-assembly-dimensions-Fensin-2004-Mueller-et-al-2013a_tbl1_323487844
 #All units are at cm-level
-
-Test_Convergence=True
     
-Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm
-Mesh_Points = 150 #How many mesh points are there going to be in our first trial? Changes results due to source term
-Source_Strength = 200 #Strength of uniform fuel source
-Total_Source = Source_Strength * np.pi * Cylinder_Radius**2 #Spread source throughout the cylinder. AI generated
-
+Cylinder_Radius = 0.513 #Fuel and Clad are homogenized, this is in cm. 0.513 cm by default
+Mesh_Points = int(input("How many mesh points should there be for the First Trial? ")) #How many mesh points are there going to be in our first trial? Changes results due to source term
+Source_Strength = int(input("How Strong should the uniform fuel source be? ")) #Strength of uniform fuel source
+Refinement_Trials=int(input("How many refinements should be done to this mesh (max 7)? "))
+while Refinement_Trials>7 or Refinement_Trials<1:
+    Refinement_Trials=int(input("Invalid input, how many refinement trials (min 1, max 7)? "))
 #Properties for fuel/clad and moderator. Acquired from this source: https://www.oecd-nea.org/science/wprs/eg3drtb/NEA-C5G7MOX.PDF
 #Diffusion coefficients are derived from transport cross section (1/(3*(Tr_CS + Abs_CS)))
 
@@ -42,15 +36,20 @@ Mod_Avg_Abs_CS= sum(Mod_Abs_CS)/len(Mod_Abs_CS)
 Mod_Total_CS= [2.30070E-01,7.76460E-01,1.4842,1.5052,1.5592,2.0254,3.3057]
 Mod_Avg_Total_CS =  sum(Mod_Total_CS)/len(Mod_Total_CS)
 
-
 Greatest_Extent=Cylinder_Radius+2*(Mod_Avg_Diff_Coeff)
 Step_Width=Greatest_Extent/(Mesh_Points-1)
 
-R_Points=np.linspace(0,Greatest_Extent,Mesh_Points) #Points between centerline and greatest extent. Not all groups will reach this far
-#Singularity at zero requires special treatment
-
+R_Points=np.linspace(0,Greatest_Extent,Mesh_Points) #Points between centerline and greatest extent
+Greatest_Extent=Cylinder_Radius+2*(Mod_Avg_Diff_Coeff)
 Flux_Array=np.zeros((len(R_Points)))#Create empty array to store flux values at each point
-Anal_Flux=np.zeros((len(R_Points))) #Create 1D array to store flux values for 1-group analytical solution
+
+def Initialize(): #Reset everything for repeated trials
+    global Mesh_Points,Greatest_Extent,Step_Width,R_Points,Flux_Array
+    
+    Step_Width=Greatest_Extent/(Mesh_Points-1)
+    R_Points=np.linspace(0,Greatest_Extent,Mesh_Points) #Points between centerline and greatest extent
+    Flux_Array=np.zeros((len(R_Points)))#Create empty array to store flux values at each point
+
 
 def Get_Properties(mesh_position): #Find properties at a point, maybe between two groups
     global Cur_R,R_minhalf,R_plushalf,Next_R,Prev_R,Flux_plusone,Flux_minone,Cur_Diff_Coeff,Diff_Cur_Flux,D_plushalf,D_minhalf,Fission_Coeff,Removal_Coeff
@@ -101,166 +100,98 @@ def Get_Properties(mesh_position): #Find properties at a point, maybe between tw
         Diff_Cur_Flux = -((R_plushalf*D_plushalf + R_minhalf*D_minhalf) / (Cur_R*Step_Width**2))#This one is all negative
         Flux_plusone = R_plushalf*D_plushalf/(Cur_R*Step_Width**2) #Diffusion term coefficient
         Flux_minone=R_minhalf*D_minhalf /(Cur_R*Step_Width**2)
-    
-    
-
-def Analytical_Soln(): #Shape is right, but magnitude is wrong. ChatGPT can't fix
-    phi_anal = np.zeros_like(R_Points)
-
-    a = Cylinder_Radius
-    R = Greatest_Extent
-
-    # --- Fuel properties ---
-    Df = Fuel_Clad_Avg_Diff_Coeff
-    Sa_f = Fuel_Clad_Avg_Abs_CS
-    Sf_eff = (Avg_Nu - 1.0) * Fuel_Clad_Avg_Fission_CS
-    S = Source_Strength
-
-    delta = Sf_eff - Sa_f
-    gamma = math.sqrt(abs(delta / Df))
-
-    # --- Moderator ---
-    Dm = Mod_Avg_Diff_Coeff
-    Sa_m = Mod_Avg_Abs_CS
-    Bm = math.sqrt(Sa_m / Dm)
-
-    # --- Particular solution ---
-    phi_p = -S / delta
-
-    # --- Choose fuel basis ---
-    if delta > 0:
-        # Supercritical fuel
-        fuel_func   = lambda r: j0(gamma * r)
-        fuel_deriv  = lambda r: -gamma * j1(gamma * r)
-    else:
-        # Subcritical fuel (your case)
-        fuel_func   = lambda r: i0(gamma * r)
-        fuel_deriv  = lambda r: gamma * i1(gamma * r)
-
-    # --- Linear system ---
-    eq1 = [
-        fuel_func(a),
-        -i0(Bm * a),
-        -k0(Bm * a)
-    ]
-    rhs1 = -phi_p
-
-    eq2 = [
-        Df * fuel_deriv(a),
-        -Dm * Bm * i1(Bm * a),
-        Dm * Bm * k1(Bm * a)
-    ]
-    rhs2 = 0.0
-
-    eq3 = [
-        0.0,
-        i0(Bm * R),
-        k0(Bm * R)
-    ]
-    rhs3 = 0.0
-
-    A_mat = np.array([eq1, eq2, eq3])
-    b_vec = np.array([rhs1, rhs2, rhs3])
-
-    A, C, D = np.linalg.solve(A_mat, b_vec)
-
-    # --- Evaluate flux ---
-    for i, r in enumerate(R_Points):
-        if r <= a:
-            phi_anal[i] = A * fuel_func(r) + phi_p
-        else:
-            phi_anal[i] = C * i0(Bm * r) + D * k0(Bm * r)
-
-    return phi_anal
-
-
 
 
 def Numerical_Soln(): #This function was heavily edited by ChatGPT
-    Group_Matr = np.zeros((Mesh_Points, Mesh_Points))
-    Source_Matr = np.zeros(Mesh_Points)
+    Flux_Matr = np.zeros((Mesh_Points, Mesh_Points)) #Create empty matrix for flux values (A matrix)
+    Source_Matr = np.zeros(Mesh_Points) #Create empty matrix for source strength (b matrix)
     
     for i in range(Mesh_Points):
-        Get_Properties(i)
+        Get_Properties(i) #Acquire material properties for current point
 
         # -------------------
         # CENTERLINE (symmetry condition)
         # -------------------
         if i == 0:
             
-            Group_Matr[i, i]   = -2 * Cur_Diff_Coeff / Step_Width**2 \
-                                 + Fission_Coeff - Removal_Coeff
-            Group_Matr[i, i+1] =  2 * Cur_Diff_Coeff / Step_Width**2
+            Flux_Matr[i, i]   = -2 * (Cur_Diff_Coeff / Step_Width**2) + Fission_Coeff - Removal_Coeff #Apply symmetry condition if at r=0
+            Flux_Matr[i, i+1] =  2 * Cur_Diff_Coeff / Step_Width**2 #Same as above, but only diffusion portion
 
-            Source_Matr[i] = -Source_Strength
+            Source_Matr[i] = -Source_Strength #Define source array at this point
             continue
 
         # -------------------
         # OUTER BOUNDARY (Assumed zero)
         # -------------------
         if i == Mesh_Points - 1:
-            Group_Matr[i, i] = 1.0
+            Flux_Matr[i, i] = 1.0 #Setting these values ensures flux will always be at zero at the last point (Extrapolation distance)
             Source_Matr[i] = 0.0
             continue
 
         # -------------------
         # INTERIOR POINTS (Anything between origin and zero bound)
         # -------------------
-        
-        Group_Matr[i, i-1] = Flux_minone
-        Group_Matr[i, i]   = Diff_Cur_Flux + Fission_Coeff - Removal_Coeff
-        Group_Matr[i, i+1] = Flux_plusone
+        #Work is largely done in Get_Properties for these
+        Flux_Matr[i, i-1] = Flux_minone
+        Flux_Matr[i, i]   = Diff_Cur_Flux + Fission_Coeff - Removal_Coeff
+        Flux_Matr[i, i+1] = Flux_plusone
 
-        if Cur_R < Cylinder_Radius:
+        if Cur_R < Cylinder_Radius: #Only apply source if we're in the fuel cylinder, coolant has no source
             Source_Matr[i] = -Source_Strength
         else:
             Source_Matr[i] = 0.0
 
-    Sparse_A = sparse.csr_matrix(Group_Matr)
+    Sparse_A = sparse.csr_matrix(Flux_Matr) #Solve, then return flux matrix
     return lin.spsolve(Sparse_A, Source_Matr)
 
 #Run flux calculation questions
-Flux_Array = Numerical_Soln()
-Anal_Flux_Array=Analytical_Soln()
-
-def Find_L2_Error(): #For analytical solution, finds Least mean squared error between it and numerical solution
+def Find_L2_Error(Prev_Flux,Cur_Flux): #Least mean square error between consecutive trials
     Eo=0 #Difference between current values
     Ep=0 #Difference between next value
     Total_Error=0 #Summation portion of error
-    max_error=0
-#L2 code can be found in HW2 Q2C file
-    for z in range(len(Flux_Array) - 1): #runs up to second to last value in both analytical and Numerical data arrays
+    max_error=0 #Greatest point of error
+
+    for z in range(len(Prev_Flux) - 1): #runs up to second to last value in previous array
         #start at 0, iterate to end
-        cur_anal_flux = Anal_Flux[z] #Pull current flux value from array
-        next_anal_flux = Anal_Flux[z+1] #Pull next flux value from array
+        cur_prev_flux = Prev_Flux[z] #Pull current flux value from array
+        next_prev_flux = Prev_Flux[z+1] #Pull next flux value from array
         #calculate error, then add to total
-        Eo = abs(Flux_Array[0][z] - cur_anal_flux)
+        Eo = abs(Cur_Flux[2*z] - cur_prev_flux)
+        
         if Eo>max_error:
             max_error=Eo #Find and print out the greatest deviation
-        Ep = (Flux_Array[0][z+1] - next_anal_flux)
+        Ep = (Cur_Flux[2*z+2] - next_prev_flux)
+        
         Total_Error += Step_Width/2 * (Eo**2 + Ep**2)
     #solve for and print
-    L_square_error=math.sqrt(Total_Error) #Get final answer, then print out results
+    L_square_error=np.sqrt(Total_Error) #Get final answer, then print out results
+    print("For", len(Prev_Flux), "Points to", len(Cur_Flux),"Points:")
     print("Least squares error = ", L_square_error)
     print("Greatest error =", max_error)
 
-def Plot_Fluxes(): #Print out flux values for each group
-    #for i in range(Mesh_Points):
-     #   print("Flux at point", R_Points[i], "cm =", Flux_Array[i])
-    plt.plot(R_Points,Flux_Array,color="red",label="Numerical Flux")
-    plt.plot(R_Points,Anal_Flux_Array,color="blue",linestyle='--',label='Analytical Flux')
+def Plot_Fluxes(): #Print out flux values
+    #plt.plot(R_Points,Flux_Array,color="red",label="Flux for " + str(Mesh_Points) + " Mesh Points")
     plt.axvline(x=Cylinder_Radius, color='black',linestyle='--', label='Edge of Fuel/Clad') #Indicate edge of the cylinder
     plt.xlabel("Radial distance from center (cm)")
-    plt.ylabel("Group Flux (n / (cm\u00b2 * s)")
-    plt.title("Radial Distance vs Total Flux at Steady State")
+    plt.ylabel("Total Flux (n / (cm\u00b2 * s)")
+    plt.title("Radial Distance vs Total Flux at Steady State (S=" + str(Source_Strength) +")")
     plt.legend()
+    plt.grid()
     plt.show()
     
-Plot_Fluxes() #Run plotting code
-#Print out first values
-print(Anal_Flux_Array[0])
-print(Flux_Array[0])
-#Find_L2_Error()#Find and print out L2 error if we're doing analytical solution. Finish that
-#End of code
+#Actually perform convergence test
+Color_Array=["Red","Orange","Yellow","Green","Blue","Indigo","Violet"] #Pretty colors that each trial will be printed as
+Prev_Array=np.zeros((len(R_Points)))
+for N in range(Refinement_Trials):
+    Initialize()
+    Flux_Array = Numerical_Soln()
+    plt.plot(R_Points,Flux_Array,color=str(Color_Array[N]),label="Flux for " + str(Mesh_Points) + " Mesh Points")
+    if N!=0: #If first trial, no previous trial to compare to
+        Find_L2_Error(Prev_Array,Flux_Array)
+    Prev_Array=Flux_Array #Define current array as previous for error comparison
+    Mesh_Points=Mesh_Points * 2 #Double number of points for next trial
+    
+Plot_Fluxes() #Run plotting code to create graph
 
+#End of code
 
